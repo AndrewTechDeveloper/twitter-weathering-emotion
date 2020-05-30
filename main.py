@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from requests_oauthlib import OAuth1Session
 from dotenv import load_dotenv
 from pathlib import Path
