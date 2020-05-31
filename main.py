@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 from requests_oauthlib import OAuth1Session
 from dotenv import load_dotenv
 from pathlib import Path
@@ -22,14 +21,14 @@ t = Tokenizer()
 CONSUMER_KEY = os.getenv("CONSUMER_KEY")
 CONSUMER_SECRET = os.getenv("CONSUMER_SECRET")
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN")
-ACCESS_TOKEN_SECRET = os.getenv("ACCESS_TOKEN_SECRET")
+ACCESS_SECRET = os.getenv("ACCESS_SECRET")
 
 class TwitterApi:
-    def __init__(self, search_word, count):
-        self.twitter_api = OAuth1Session(CONSUMER_KEY, CONSUMER_SECRET, ACCESS_TOKEN, ACCESS_TOKEN_SECRET)
+    def __init__(self, search_word):
+        self.twitter_api = OAuth1Session(CONSUMER_KEY, CONSUMER_SECRET, ACCESS_TOKEN, ACCESS_SECRET)
         self.url = 'https://api.twitter.com/1.1/search/tweets.json?tweet_mode=extended'
-        self.params = {'q': search_word, 'count': count, 'result_type': 'recent', 'exclude': 'retweets', 'lang': 'ja'}
-        self.tweet_num = count
+        self.params = {'q': search_word, 'count': 100, 'result_type': 'recent', 'exclude': 'retweets', 'lang': 'ja'}
+        self.tweet_num = 100
 
     def get_next_tweets(self):
         req = self.twitter_api.get(self.url, params=self.params)
@@ -55,7 +54,7 @@ class TwitterApi:
             if self.tweet_num == 0 or len(tweets_df.index) > 10:
                 break
             if ret:
-                df = pd.io.json.json_normalize(self.tweets['statuses'])
+                df = pd.json_normalize(self.tweets['statuses'])
                 tweets_df = pd.concat([tweets_df, df], sort=False)
                 print('アクセス可能回数:', self.x_rate_limit_remaining)
                 print('リセット時間:', self.x_rate_limit_reset)
@@ -78,45 +77,53 @@ def create_word_cloud(df):
     wordcloud = WordCloud(background_color="white",
         font_path="./SawarabiMincho-Regular.ttf",
         width=800,height=600).generate(text)
-    wordcloud.to_file("./wordcloud_sample.png")
+    wordcloud.to_file("./wordcloud.png")
 
-def compare_dataframes(df1, df2):
-    df = pd.concat([df1, df2]).duplicated(subset='surf', keep='first')
+def compare_match_of_dataframes(df1, df2):
+    df1 = df1.groupby(['surf', 'read', 'pos'])['surf'].agg('count').to_frame('count')
+    df2 = df2.groupby(['surf', 'read', 'pos'])['surf'].agg('count').to_frame('count')
+    df1['count'] = df1['count']/df1['count'].sum()
+    df2['count'] = df2['count']/df2['count'].sum()
+    df = df1 * df2
+    df = df[df['count'].notna()].sort_values('count', ascending=False)
+    sum_of_count = df['count'].sum()
+    return sum_of_count
 
-def scoring_words(df):
-    score_df = df.groupby(['surf','read','pos']).count().rename(columns={'Unnamed: 0' :'count'}).sort_values('count', ascending=False)
-    score_df['count'] = score_df['count']/score_df['count'].sum()
-    return score_df
+def create_token_by_word(word):
+    twitter_api = TwitterApi(word)
+    tweets_df = twitter_api.create_tweets_df()
+    token_df = twitter_api.create_token_df(tweets_df)
+    return token_df
 
-df_origin_positive_words = pd.read_csv('./positive_words.csv')
-df_origin_negative_words = pd.read_csv('./negative_words.csv')
+def create_positive_token():
+    df_origin_words = pd.read_csv('./positive_words.csv')
+    df_words = pd.DataFrame([])
+    for index, row in df_origin_words.iterrows():
+        twitter_api = TwitterApi(row['word'])
+        tweets_df = twitter_api.create_tweets_df()
+        token_df = twitter_api.create_token_df(tweets_df)
+        df_words = pd.concat([df_words, token_df], sort=False)
+    return df_words
 
-count = 100
+def create_negative_token():
+    df_origin_words = pd.read_csv('./negative_words.csv')
+    df_words = pd.DataFrame([])
+    for index, row in df_origin_words.iterrows():
+        twitter_api = TwitterApi(row['word'])
+        tweets_df = twitter_api.create_tweets_df()
+        token_df = twitter_api.create_token_df(tweets_df)
+        df_words = pd.concat([df_words, token_df], sort=False)
+    return df_words
 
-df_n = pd.read_csv('./negative_token.csv')
-df_p = pd.read_csv('./positive_token.csv')
+df_n = create_negative_token()
+df_p = create_positive_token()
+df_r = create_token_by_word('誕生日')
 
-exclude_duplicates(df_n, df_p)
+positive_rate = compare_match_of_dataframes(df_p, df_r)
+negative_rate = compare_match_of_dataframes(df_n, df_r)
+total_rate = positive_rate + negative_rate
 
-# negative_score_df = scoring_words(df_negative_words)
-# positive_score_df = scoring_words(df_positive_words)
-#
-# compare_dataframes(positive_score_df, negative_score_df)
-# df_negative_words = pd.DataFrame([])
-# for index, row in df_origin_negative_words.iterrows():
-#     twitter_api = TwitterApi(row['word'], count)
-#     tweets_df = twitter_api.create_tweets_df()
-#     token_df = twitter_api.create_token_df(tweets_df)
-#     df_negative_words = pd.concat([df_negative_words, token_df], sort=False)
-#
-# df_negative_words.to_csv('negative_token.csv')
+create_word_cloud(df_r)
 
-# df_positive_words = pd.DataFrame([])
-# for index, row in df_origin_positive_words.iterrows():
-#     twitter_api = TwitterApi(row['word'], count)
-#     tweets_df = twitter_api.create_tweets_df()
-#     token_df = twitter_api.create_token_df(tweets_df)
-#     df_positive_words = pd.concat([df_positive_words, token_df], sort=False)
-#
-# df_positive_words.to_csv('positive_token.csv')
-# create_word_cloud(pd.read_csv('./positive_token.csv'))
+print(positive_rate/total_rate*100)
+print(negative_rate/total_rate*100)
