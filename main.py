@@ -12,6 +12,7 @@ import pandas as pd
 import os
 import csv
 import math
+import twitter
 
 load_dotenv(verbose=True)
 env_path = Path('.') / '.env'
@@ -68,11 +69,16 @@ class TwitterApi:
                 surf = token.surface
                 read = token.reading
                 pos = token.part_of_speech
-                if read!= '*' and all(x not in pos for x in ('助動詞', '感動詞', '記号', '助詞', '非自立', '接頭詞', '連体詞', 'フィラー', '代名詞', '接尾')):
+                if read!= '*' and all(x not in pos for x in ('助動詞', '感動詞', '記号', '助詞', '非自立', '接頭詞', '連体詞', 'フィラー', '代名詞', '接尾', "数")):
                     token_list.append([surf, read, pos])
-        return pd.DataFrame(token_list, columns=['surf', 'read', 'pos'])
+        token_df = pd.DataFrame(token_list, columns=['surf', 'read', 'pos'])
+        create_word_cloud(token_df)
+        token_df = token_df.groupby(['surf', 'read', 'pos'])['surf'].agg('count').to_frame('count')
+        return token_df
 
 def create_word_cloud(df):
+    df.reset_index()
+    print(df.columns)
     text = ' '.join(df['surf'])
     wordcloud = WordCloud(background_color="white",
         font_path="./SawarabiMincho-Regular.ttf",
@@ -80,8 +86,6 @@ def create_word_cloud(df):
     wordcloud.to_file("./wordcloud.png")
 
 def compare_match_of_dataframes(df1, df2):
-    df1 = df1.groupby(['surf', 'read', 'pos'])['surf'].agg('count').to_frame('count')
-    df2 = df2.groupby(['surf', 'read', 'pos'])['surf'].agg('count').to_frame('count')
     df1['count'] = df1['count']/df1['count'].sum()
     df2['count'] = df2['count']/df2['count'].sum()
     df = df1 * df2
@@ -89,10 +93,17 @@ def compare_match_of_dataframes(df1, df2):
     sum_of_count = df['count'].sum()
     return sum_of_count
 
+def remove_extreme_value(df):
+    q3 = df['count'].quantile(.99)
+    df = df[df['count'] < q3]
+    return df
+
 def create_token_by_word(word):
     twitter_api = TwitterApi(word)
     tweets_df = twitter_api.create_tweets_df()
+    tweets_df.to_csv('word.csv')
     token_df = twitter_api.create_token_df(tweets_df)
+    token_df = remove_extreme_value(token_df)
     return token_df
 
 def create_positive_token():
@@ -103,27 +114,59 @@ def create_positive_token():
         tweets_df = twitter_api.create_tweets_df()
         token_df = twitter_api.create_token_df(tweets_df)
         df_words = pd.concat([df_words, token_df], sort=False)
+    df_words = remove_extreme_value(df_words)
     return df_words
 
 def create_negative_token():
     df_origin_words = pd.read_csv('./negative_words.csv')
     df_words = pd.DataFrame([])
     for index, row in df_origin_words.iterrows():
-        twitter_api = TwitterApi(row['word'])
-        tweets_df = twitter_api.create_tweets_df()
-        token_df = twitter_api.create_token_df(tweets_df)
-        df_words = pd.concat([df_words, token_df], sort=False)
+            twitter_api = TwitterApi(row['word'])
+            tweets_df = twitter_api.create_tweets_df()
+            token_df = twitter_api.create_token_df(tweets_df)
+            df_words = pd.concat([df_words, token_df], sort=False)
+    df_words = remove_extreme_value(df_words)
     return df_words
 
-df_n = create_negative_token()
-df_p = create_positive_token()
-df_r = create_token_by_word('誕生日')
+def post_tweet(positive_rate, negative_rate):
+    auth = twitter.OAuth(consumer_key=CONSUMER_KEY, consumer_secret=CONSUMER_SECRET, token=ACCESS_TOKEN, token_secret=ACCESS_SECRET)
+    t = twitter.Twitter(auth=auth)
+    if positive_rate < 30:
+        msg = '人を傷つける言葉が大変多く使われているようです。何気なく発した言葉でも他人の人生を変えてしまうこともあります。優しい言葉を使うよう心がけましょう。'
+    elif positive_rate < 40:
+        msg = '人を傷つける言葉が多く使われているようです。画面の先にはリアルな人がいることを忘れないようにしましょう。'
+    elif positive_rate < 50:
+        msg = '人を傷つける言葉が増えてきているようです。相手を思いやった言葉遣いを心がけましょう。'
+    elif positive_rate < 60:
+        msg = 'ポジティブな言葉が増えてきているようです。この調子で相手をリスペクトした言葉遣いを心がけましょう！'
+    elif positive_rate < 70:
+        msg = 'ポジティブな言葉が大変多く増えてきているようです！あなたの言葉で救われた誰かがいるかもしれません。'
+    else:
+        msg = 'とても多くのポジティブな言葉が使われているようです！大変素晴らしいことです！'
+    status = msg + '\n\nポジティブ度: ' + str(positive_rate) + '\nネガティブ度: ' + str(negative_rate)
+    pic="./wordcloud.png"
+    with open(pic,"rb") as image_file:
+        image_data=image_file.read()
+    pic_upload = twitter.Twitter(domain='upload.twitter.com',auth=auth)
+    img = pic_upload.media.upload(media=image_data)["media_id_string"]
+    t.statuses.update(status=status,media_ids=",".join([img]))
 
-positive_rate = compare_match_of_dataframes(df_p, df_r)
-negative_rate = compare_match_of_dataframes(df_n, df_r)
-total_rate = positive_rate + negative_rate
+# df_n = create_negative_token()
+# df_p = create_positive_token()
+# df_r = create_token_by_word('　')
+# df_r.to_csv('random_tweets.csv')
+# 
+# positive_match = compare_match_of_dataframes(df_p, df_r)
+# negative_match = compare_match_of_dataframes(df_n, df_r)
+# total_match = positive_match + negative_match
+# 
+# positive_rate = positive_match/total_match*100
+# negative_rate = negative_match/total_match*100
+# 
+# random_df = pd.read_csv('./random_tweets.csv')
+# create_word_cloud(random_df)
+# 
+# post_tweet(positive_rate, negative_rate)
 
-create_word_cloud(df_r)
-
-print(positive_rate/total_rate*100)
-print(negative_rate/total_rate*100)
+df_r = create_token_by_word('誹謗中傷')
+df_r.to_csv('random_tweets.csv')
