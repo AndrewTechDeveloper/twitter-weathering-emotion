@@ -5,6 +5,7 @@ from random import randrange
 from scipy import stats
 from janome.tokenizer import Tokenizer
 from wordcloud import WordCloud
+from pytz import timezone
 import time
 import datetime
 import json
@@ -18,6 +19,7 @@ load_dotenv(verbose=True)
 env_path = Path('.') / '.env'
 load_dotenv(dotenv_path=env_path)
 t = Tokenizer()
+now = datetime.datetime.now(timezone('Asia/Tokyo'))
 
 CONSUMER_KEY = os.getenv("CONSUMER_KEY")
 CONSUMER_SECRET = os.getenv("CONSUMER_SECRET")
@@ -48,11 +50,12 @@ class TwitterApi:
         else:
             return False
 
-    def create_tweets_df(self):
+    def create_tweets_df(self, limit):
         tweets_df = pd.DataFrame([])
         while self.tweet_num > 0:
             ret = self.get_next_tweets()
-            if self.tweet_num == 0 or len(tweets_df.index) > 10:
+            time.sleep(5)
+            if self.tweet_num == 0 or len(tweets_df.index) > limit:
                 break
             if ret:
                 df = pd.json_normalize(self.tweets['statuses'])
@@ -69,16 +72,12 @@ class TwitterApi:
                 surf = token.surface
                 read = token.reading
                 pos = token.part_of_speech
-                if read!= '*' and all(x not in pos for x in ('助動詞', '感動詞', '記号', '助詞', '非自立', '接頭詞', '連体詞', 'フィラー', '代名詞', '接尾', "数")):
+                if read!= '*' and all(x not in surf for x in ('する', 'なる', 'なっ', 'ある', 'ない', 'やっ')) and all(x not in pos for x in ('助動詞', '感動詞', '記号', '助詞', '非自立', '接頭詞', '連体詞', 'フィラー', '代名詞', '接尾', "数")):
                     token_list.append([surf, read, pos])
         token_df = pd.DataFrame(token_list, columns=['surf', 'read', 'pos'])
-        create_word_cloud(token_df)
-        token_df = token_df.groupby(['surf', 'read', 'pos'])['surf'].agg('count').to_frame('count')
         return token_df
 
 def create_word_cloud(df):
-    df.reset_index()
-    print(df.columns)
     text = ' '.join(df['surf'])
     wordcloud = WordCloud(background_color="white",
         font_path="./SawarabiMincho-Regular.ttf",
@@ -86,6 +85,8 @@ def create_word_cloud(df):
     wordcloud.to_file("./wordcloud.png")
 
 def compare_match_of_dataframes(df1, df2):
+    df1 = df1.groupby(['surf', 'read', 'pos'])['surf'].agg('count').to_frame('count')
+    df2 = df2.groupby(['surf', 'read', 'pos'])['surf'].agg('count').to_frame('count')
     df1['count'] = df1['count']/df1['count'].sum()
     df2['count'] = df2['count']/df2['count'].sum()
     df = df1 * df2
@@ -100,33 +101,29 @@ def remove_extreme_value(df):
 
 def create_token_by_word(word):
     twitter_api = TwitterApi(word)
-    tweets_df = twitter_api.create_tweets_df()
-    tweets_df.to_csv('word.csv')
+    tweets_df = twitter_api.create_tweets_df(1000)
     token_df = twitter_api.create_token_df(tweets_df)
-    token_df = remove_extreme_value(token_df)
     return token_df
 
 def create_positive_token():
+    df = pd.DataFrame([])
     df_origin_words = pd.read_csv('./positive_words.csv')
-    df_words = pd.DataFrame([])
     for index, row in df_origin_words.iterrows():
         twitter_api = TwitterApi(row['word'])
-        tweets_df = twitter_api.create_tweets_df()
+        tweets_df = twitter_api.create_tweets_df(100)
         token_df = twitter_api.create_token_df(tweets_df)
-        df_words = pd.concat([df_words, token_df], sort=False)
-    df_words = remove_extreme_value(df_words)
-    return df_words
+        df = pd.concat([df, token_df], sort=False)
+    return df
 
 def create_negative_token():
+    df = pd.DataFrame([])
     df_origin_words = pd.read_csv('./negative_words.csv')
-    df_words = pd.DataFrame([])
     for index, row in df_origin_words.iterrows():
-            twitter_api = TwitterApi(row['word'])
-            tweets_df = twitter_api.create_tweets_df()
-            token_df = twitter_api.create_token_df(tweets_df)
-            df_words = pd.concat([df_words, token_df], sort=False)
-    df_words = remove_extreme_value(df_words)
-    return df_words
+        twitter_api = TwitterApi(row['word'])
+        tweets_df = twitter_api.create_tweets_df(100)
+        token_df = twitter_api.create_token_df(tweets_df)
+        df = pd.concat([df, token_df], sort=False)
+    return df
 
 def post_tweet(positive_rate, negative_rate):
     auth = twitter.OAuth(consumer_key=CONSUMER_KEY, consumer_secret=CONSUMER_SECRET, token=ACCESS_TOKEN, token_secret=ACCESS_SECRET)
@@ -151,22 +148,30 @@ def post_tweet(positive_rate, negative_rate):
     img = pic_upload.media.upload(media=image_data)["media_id_string"]
     t.statuses.update(status=status,media_ids=",".join([img]))
 
-# df_n = create_negative_token()
-# df_p = create_positive_token()
-# df_r = create_token_by_word('　')
-# df_r.to_csv('random_tweets.csv')
-# 
-# positive_match = compare_match_of_dataframes(df_p, df_r)
-# negative_match = compare_match_of_dataframes(df_n, df_r)
-# total_match = positive_match + negative_match
-# 
-# positive_rate = positive_match/total_match*100
-# negative_rate = negative_match/total_match*100
-# 
-# random_df = pd.read_csv('./random_tweets.csv')
-# create_word_cloud(random_df)
-# 
-# post_tweet(positive_rate, negative_rate)
+def cron_worker():
+    positive_df = pd.DataFrame([])
+    negative_df = pd.DataFrame([])
+    random_df = pd.DataFrame([])
+    while True:
+        positive_df = pd.concat([positive_df, create_positive_token()], sort=False)
+        negative_df = pd.concat([negative_df, create_negative_token()], sort=False)
+        random_df = pd.concat([random_df, create_token_by_word('　')], sort=False)
+        post_time = datetime.time(20, 0, 0).hour
+        now = datetime.datetime.now().time().hour
+        if now >= post_time:
+            break
+        else:
+            break
+            time.sleep(60*20)
+    create_word_cloud(negative_df)
 
-df_r = create_token_by_word('誹謗中傷')
-df_r.to_csv('random_tweets.csv')
+    positive_match = compare_match_of_dataframes(positive_df, random_df)
+    negative_match = compare_match_of_dataframes(negative_df, random_df)
+    total_match = positive_match + negative_match
+
+    positive_rate = positive_match/total_match*100
+    negative_rate = negative_match/total_match*100
+
+    post_tweet(positive_rate, negative_rate)
+
+cron_worker()
