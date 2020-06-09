@@ -1,8 +1,8 @@
+# coding: UTF-8
+
 from requests_oauthlib import OAuth1Session
 from dotenv import load_dotenv
 from pathlib import Path
-from random import randrange
-from scipy import stats
 from janome.tokenizer import Tokenizer
 from wordcloud import WordCloud
 from pytz import timezone
