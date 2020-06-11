@@ -126,8 +126,10 @@ def post_tweet(positive_rate, negative_rate):
         msg = '人を傷つける言葉が大変多く使われているようです。何気なく発した言葉でも他人の人生を変えてしまうこともあります。優しい言葉を使うよう心がけましょう。'
     elif positive_rate < 40:
         msg = '人を傷つける言葉が多く使われているようです。画面の先にはリアルな人がいることを忘れないようにしましょう。'
-    elif positive_rate < 50:
+    elif positive_rate < 45:
         msg = '人を傷つける言葉が増えてきているようです。相手を思いやった言葉遣いを心がけましょう。'
+    elif positive_rate < 52:
+        msg = 'ポジティブな言葉とネガティブな言葉が均衡しています。ポジティブな言葉を使い、お互いをリスペクトし合った素敵なSNS空間となるといいですね！'
     elif positive_rate < 60:
         msg = 'ポジティブな言葉が増えてきているようです。この調子で相手をリスペクトした言葉遣いを心がけましょう！'
     elif positive_rate < 70:
@@ -146,21 +148,18 @@ def cron_worker():
     positive_df = pd.DataFrame([])
     negative_df = pd.DataFrame([])
     random_df = pd.DataFrame([])
-    positive_df = pd.concat([positive_df, create_positive_token()], sort=False)
-    negative_df = pd.concat([negative_df, create_negative_token()], sort=False)
-    random_df = pd.concat([random_df, create_token_by_word('　')], sort=False)
-    post_time = datetime.time(20, 0, 0).hour
-    # while True:
-    #     positive_df = pd.concat([positive_df, create_positive_token()], sort=False)
-    #     negative_df = pd.concat([negative_df, create_negative_token()], sort=False)
-    #     random_df = pd.concat([random_df, create_token_by_word('　')], sort=False)
-    #     post_time = datetime.time(20, 0, 0).hour
-    #     now = datetime.datetime.now().time().hour
-    #     if now >= post_time:
-    #         break
-    #     else:
-    #         break
-    #         time.sleep(60*20)
+    while True:
+        positive_df = pd.concat([positive_df, create_positive_token()], sort=False)
+        negative_df = pd.concat([negative_df, create_negative_token()], sort=False)
+        random_df = pd.concat([random_df, create_token_by_word('　')], sort=False)
+        post_time = datetime.time(1, 0, 0).hour
+        now = datetime.datetime.now().time().hour
+        print(now)
+        if now >= post_time:
+            break
+        else:
+            break
+            time.sleep(60*20)
     create_word_cloud(random_df)
 
     positive_match = compare_match_of_dataframes(positive_df, random_df)
