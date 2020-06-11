@@ -13,7 +13,7 @@ import math
 import twitter
 
 t = Tokenizer()
-now = datetime.datetime.now(timezone('Asia/Tokyo'))
+now = datetime.datetime.now()
 
 CONSUMER_KEY = os.getenv("CONSUMER_KEY")
 CONSUMER_SECRET = os.getenv("CONSUMER_SECRET")
@@ -146,18 +146,22 @@ def cron_worker():
     positive_df = pd.DataFrame([])
     negative_df = pd.DataFrame([])
     random_df = pd.DataFrame([])
-    while True:
-        positive_df = pd.concat([positive_df, create_positive_token()], sort=False)
-        negative_df = pd.concat([negative_df, create_negative_token()], sort=False)
-        random_df = pd.concat([random_df, create_token_by_word('　')], sort=False)
-        post_time = datetime.time(20, 0, 0).hour
-        now = datetime.datetime.now().time().hour
-        if now >= post_time:
-            break
-        else:
-            break
-            time.sleep(60*20)
-    create_word_cloud(negative_df)
+    positive_df = pd.concat([positive_df, create_positive_token()], sort=False)
+    negative_df = pd.concat([negative_df, create_negative_token()], sort=False)
+    random_df = pd.concat([random_df, create_token_by_word('　')], sort=False)
+    post_time = datetime.time(20, 0, 0).hour
+    # while True:
+    #     positive_df = pd.concat([positive_df, create_positive_token()], sort=False)
+    #     negative_df = pd.concat([negative_df, create_negative_token()], sort=False)
+    #     random_df = pd.concat([random_df, create_token_by_word('　')], sort=False)
+    #     post_time = datetime.time(20, 0, 0).hour
+    #     now = datetime.datetime.now().time().hour
+    #     if now >= post_time:
+    #         break
+    #     else:
+    #         break
+    #         time.sleep(60*20)
+    create_word_cloud(random_df)
 
     positive_match = compare_match_of_dataframes(positive_df, random_df)
     negative_match = compare_match_of_dataframes(negative_df, random_df)
