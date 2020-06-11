@@ -1,11 +1,8 @@
 # coding: UTF-8
 
 from requests_oauthlib import OAuth1Session
-from dotenv import load_dotenv
-from pathlib import Path
 from janome.tokenizer import Tokenizer
 from wordcloud import WordCloud
-from pytz import timezone
 import time
 import datetime
 import json
@@ -15,9 +12,6 @@ import csv
 import math
 import twitter
 
-load_dotenv(verbose=True)
-env_path = Path('.') / '.env'
-load_dotenv(dotenv_path=env_path)
 t = Tokenizer()
 now = datetime.datetime.now(timezone('Asia/Tokyo'))
 
